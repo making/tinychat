@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head lang="ja">
+    <meta charset="UTF-8">
+    <title>チャット</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+</head>
+<body>
+<div>
+    <input type="text" id="nickname" placeholder="ニックネーム">
+    <button id="connect">接続</button>
+    <button id="disconnect" disabled="disabled">切断</button>
+</div>
+<div>
+    <input type="text" id="message" placeholder="Message" disabled="disabled">
+    <button id="send" disabled="disabled">送信</button>
+    <table border="1" width="80%">
+        <!-- テーブルレイアウト! -->
+        <tr>
+            <th width="30%">参加者</th>
+            <th width="70%">メッセージ</th>
+        </tr>
+        <tr>
+            <td>
+                <div id="participants">
+                    <ul></ul>
+                </div>
+            </td>
+            <td>
+                <div id="response"></div>
+            </td>
+        </tr>
+    </table>
+</div>
+</body>
+
+<script type="text/javascript">
+    /**
+     * 初期化処理
+     */
+    var ChatApp = function () {
+        this.connectButton = document.getElementById('connect');
+        this.disconnectButton = document.getElementById('disconnect');
+        this.sendButton = document.getElementById('send');
+        this.nicknameText = document.getElementById('nickname');
+        this.messageText = document.getElementById('message');
+
+        // イベントハンドラの登録
+        this.connectButton.addEventListener('click', this.connect.bind(this));
+        this.disconnectButton.addEventListener('click', this.disconnect.bind(this));
+        this.sendButton.addEventListener('click', this.sendMessage.bind(this));
+        this.messageText.addEventListener('keypress', this.sendMessageOnEnter.bind(this));
+    };
+
+    /**
+     * エンドポイントへの接続処理
+     */
+    ChatApp.prototype.connect = function () {
+        var socket = new WebSocket('ws://' + location.host + '/endpoint'); // エンドポイントのURL
+        this.stompClient = Stomp.over(socket); // WebSocketを使ったStompクライアントを作成
+        this.stompClient.connect({}, this.onConnected.bind(this)); // エンドポイントに接続し、接続した際のコールバックを登録
+    };
+
+    /**
+     * エンドポイントへ接続したときの処理
+     */
+    ChatApp.prototype.onConnected = function (frame) {
+        console.log('Connected');
+        // 宛先が'/topic/join'のメッセージを購読し、コールバック処理を登録
+        this.stompClient.subscribe('/topic/join', this.onSubscribeJoin.bind(this));
+
+        // 宛先が'/topic/message'のメッセージを購読し、コールバック処理を登録
+        this.stompClient.subscribe('/topic/message', this.onSubscribeMessage.bind(this));
+
+        // 宛先が'/app/join'のメッセージを購読するが、これはニックネームを伝える用途で一回きりの処理
+        this.stompClient.subscribe('/app/join', function () {
+        }, {nickname: this.nicknameText.value} /* ヘッダーでニックネームを設定 */);
+
+        this.setConnected(true);
+    };
+
+    /**
+     * 宛先'/topic/message'なメッセージを受信したときの処理
+     */
+    ChatApp.prototype.onSubscribeMessage = function (message) {
+        var response = document.getElementById('response');
+        var p = document.createElement('p');
+        var outboundMessage = JSON.parse(message.body);
+        p.appendChild(document.createTextNode(outboundMessage.nickname + ' > ' + outboundMessage.message));
+        response.insertBefore(p, response.children[0]);
+    };
+    /**
+     * 宛先'/topic/join'なメッセージを受信したときの処理
+     */
+    ChatApp.prototype.onSubscribeJoin = function (message) {
+        var nicknames = JSON.parse(message.body);
+        var participants = document.getElementById('participants');
+        var ul = document.createElement('ul');
+        nicknames.forEach(function (nickname) {
+            var li = document.createElement('li');
+            li.appendChild(document.createTextNode(nickname));
+            ul.appendChild(li);
+        });
+        participants.replaceChild(ul, participants.children[0]);
+    };
+
+    /**
+     * 宛先'/app/message'へのメッセージ送信処理
+     */
+    ChatApp.prototype.sendMessage = function () {
+        var message = this.messageText.value;
+        this.stompClient.send('/app/message', {}, message); // 宛先'/app/message'へメッセージを送信
+        this.messageText.value = '';
+    };
+
+    /**
+     * メッセージのテキスト入力でエンターを押したときの処理
+     */
+    ChatApp.prototype.sendMessageOnEnter = function (e) {
+        if (e.keyCode != 13) return;
+        e.preventDefault();
+        this.sendMessage();
+    };
+
+    /**
+     * 接続切断処理
+     */
+    ChatApp.prototype.disconnect = function () {
+        if (this.stompClient) {
+            this.stompClient.disconnect();
+            this.stompClient = null;
+        }
+        this.setConnected(false);
+    };
+
+    /**
+     * ボタン表示の切り替え
+     */
+    ChatApp.prototype.setConnected = function (connected) {
+        this.connectButton.disabled = connected;
+        this.disconnectButton.disabled = !connected;
+        this.sendButton.disabled = !connected;
+        this.nicknameText.disabled = connected;
+        this.messageText.disabled = !connected;
+    };
+
+    new ChatApp();
+</script>
+</html>
